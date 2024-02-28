@@ -16,17 +16,8 @@ import wave
 import subprocess
 import os
 
-# simulación de la transcripción de audio en streaming
-import threading
-#import queue 
-from collections import deque
-
-# para la detección de voz
-from tuning import Tuning
-import usb.core
-import usb.util
 # ------------------------------------------------------
-# PORCUPINE 
+# PORCUPINE
 # ------------------------------------------------------
 access_key = "YhpQKilovfhz5/6XxLxq+Wmiz45bbtBUVruBptzYOdHqfyHhaUTpLw=="
 ppn_path = "./hello-shadow_en_linux_v3_0_0/hello-shadow_en_linux_v3_0_0.ppn"
@@ -35,7 +26,7 @@ ppn_path = "./hello-shadow_en_linux_v3_0_0/hello-shadow_en_linux_v3_0_0.ppn"
 porcupine = pvporcupine.create(access_key=access_key, keyword_paths=[ppn_path])
 
 # ------------------------------------------------------
-# PYAUDIO 
+# PYAUDIO
 # ------------------------------------------------------
 RESPEAKER_RATE = 16000
 RESPEAKER_CHANNELS = 1  # Cambia según tus ajustes
@@ -57,6 +48,7 @@ audio = pyaudio.PyAudio()
 
 # búsqueda del índice del dispositivo de audio
 target_device_name = "ReSpeaker 4 Mic Array (UAC1.0): USB Audio" # nombre del dispositivo
+target_device_index = 0
 info = audio.get_host_api_info_by_index(0)
 numdevices = info.get('deviceCount')
 
@@ -90,8 +82,7 @@ PAUSE_DURATION = 2 # duración de pausa requerida para transcribir
 # GESTIÓN DE TRANSCRIPCIÓN
 # ------------------------------------------------------
 is_recording = False
-record_queue = deque()
-i = 0
+
 
 # FUNCIÓN para generar archivo .wav
 def generate_wav(file_name, record):
@@ -101,64 +92,50 @@ def generate_wav(file_name, record):
         wf.setframerate(RESPEAKER_RATE)
         wf.writeframes(b''.join(record))
 
+
 # FUNCIÓN para transcribir audio usando whisper
-def call_whisper(audio_file): 
+def call_whisper(audio_file):
     command = ["whisper", audio_file, "--model", "small"]
     subprocess.run(command, check=True)
     print("whisper ejecutado")
 
-def transcript(frame): 
-    generate_wav(OUTPUT_FILENAME, frame)
-    #print("tamaño del .wav:", os.path.getsize(OUTPUT_FILENAME))
-    
-    call_whisper(OUTPUT_FILENAME)
 
+def transcript(frame):
+    generate_wav(OUTPUT_FILENAME, frame)
+    call_whisper(OUTPUT_FILENAME)
     subprocess.run(["cat", "record.txt"], stdout=open("prompt-llama.txt", "a"))
-    
+
     print("audio transcrito")
 
-# FUNCIÓN del hilo de transcripción
-def manage_transcription(): 
-    global silence_detected
-    global record_queue
-
-    while not silence_detected:
-        if record_queue: 
-            frame = record_queue.pop()
-            transcript(frame)
-
-    # vaciar la cola antes de terminar el hilo    
-    while record_queue: 
-        frame = record_queue.pop()
-        transcript(frame)
-
-    print("hilo finalizado")
-   
 # ------------------------------------------------------
 # BORRADOS
 # ------------------------------------------------------
+
+
 # FUNCIÓN para finalizar la grabación y limpiar los recursos
-def clear_resources(): 
+def terminate():
     stream.stop_stream()
     stream.close()
     audio.terminate()
     porcupine.delete()
 
+
 # FUNCIÓN para limpiar nuestro directorio actual
-def clear_actual_folder(): 
+def clear_actual_folder():
     # archivo input-llama.txt
     if os.path.exists("prompt-llama.txt"):
         subprocess.run(["rm", "prompt-llama.txt"])
     # borrar los archivos de la grabación
     subprocess.run(["find", ".", "-name", "record*", "-delete"])
 
-def main(): 
-    record = [] # grabación tras la wake word
 
+def main():
+    record = [] # grabación tras la wake word
+    global is_recording
     # limpiar el directorio antes de comenzar
     clear_actual_folder()
 
-    try: 
+    try:
         while True:
             # verificar si es la wake word
             pcm = stream.read(porcupine.frame_length, exception_on_overflow=False)
@@ -167,27 +144,24 @@ def main():
             # Procesar el audio para detectar la wake word
             keyword_index = porcupine.process(pcm)
 
-            # Si se detecta la palabra clave, iniciar la grabación 
+            # Si se detecta la palabra clave, iniciar la grabación
             if keyword_index >= 0:
                 print(f"Detected 'hello shadow'")
                 # Vaciamos el contenido de la grabación hasta ahora
                 record.clear()
                 # Iniciamos grabación
-                is_recording = True 
+                is_recording = True
 
-            if is_recording: 
+            if is_recording:
                 record.append(pcm.copy())
-         
-    except KeyboardInterrupt: 
 
+    except KeyboardInterrupt:
         transcript(record)
-
         # si el archivo prompt-llama está vacío, limpiar la carpeta
         if os.path.exists("prompt-llama.txt") and os.path.getsize("prompt-llama.txt") == 0:
             clear_actual_folder()
 
+
 if __name__ == "__main__":
     main()
-    clear_resources()
-
-    
+    terminate()
