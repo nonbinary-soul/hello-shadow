@@ -18,7 +18,7 @@ import os
 
 # simulación de la transcripción de audio en streaming
 import threading
-#import queue 
+# import queue
 from collections import deque
 
 # para la detección de voz
@@ -57,6 +57,7 @@ audio = pyaudio.PyAudio()
 
 # búsqueda del índice del dispositivo de audio
 target_device_name = "ReSpeaker 4 Mic Array (UAC1.0): USB Audio" # nombre del dispositivo
+target_device_index = 0
 info = audio.get_host_api_info_by_index(0)
 numdevices = info.get('deviceCount')
 
@@ -83,6 +84,7 @@ else:
 # ------------------------------------------------------
 novoice_counter = 0
 silence_detected = False
+pause_detected = False
 SILENCE_DURATION = 4 # duración de silencio requerida para finalizar la grabación
 PAUSE_DURATION = 2 # duración de pausa requerida para transcribir
 
@@ -92,6 +94,7 @@ PAUSE_DURATION = 2 # duración de pausa requerida para transcribir
 is_recording = False
 record_queue = deque()
 
+
 # FUNCIÓN para generar archivo .wav
 def generate_wav(file_name, record):
     with wave.open(file_name, 'wb') as wf:
@@ -100,21 +103,24 @@ def generate_wav(file_name, record):
         wf.setframerate(RESPEAKER_RATE)
         wf.writeframes(b''.join(record))
 
+
 # FUNCIÓN para transcribir audio usando whisper
 def call_whisper(audio_file): 
-    command = ["whisper", audio_file, "--model", "small"]
+    command = ["whisper", audio_file, "--model", "small", "--language", "Spanish"]
     subprocess.run(command, check=True)
     print("whisper ejecutado")
 
+
 def transcript(frame): 
     generate_wav(OUTPUT_FILENAME, frame)
-    #print("tamaño del .wav:", os.path.getsize(OUTPUT_FILENAME))
+    # print("tamaño del .wav:", os.path.getsize(OUTPUT_FILENAME))
     
     call_whisper(OUTPUT_FILENAME)
 
-    subprocess.run(["cat", "record.txt"], stdout=open("prompt-llama.txt", "a"))
+    subprocess.run(["cat", "record.txt"], stdout=open("a-llama.txt", "a"))
     
     print("audio transcrito")
+
 
 # FUNCIÓN del hilo de transcripción
 def manage_transcription(): 
@@ -125,6 +131,7 @@ def manage_transcription():
         if record_queue: 
             frame = record_queue.pop()
             transcript(frame)
+            time.sleep(0)
 
     # vaciar la cola antes de terminar el hilo    
     while record_queue: 
@@ -136,29 +143,33 @@ def manage_transcription():
 # ------------------------------------------------------
 # BORRADOS
 # ------------------------------------------------------
+
+
 # FUNCIÓN para finalizar la grabación y limpiar los recursos
-def clear_resources(): 
+def terminate(): 
     stream.stop_stream()
     stream.close()
     audio.terminate()
     porcupine.delete()
 
+
 # FUNCIÓN para limpiar nuestro directorio actual
 def clear_actual_folder(): 
     # archivo input-llama.txt
-    if os.path.exists("prompt-llama.txt"):
-        subprocess.run(["rm", "prompt-llama.txt"])
+    if os.path.exists("a-llama.txt"):
+        subprocess.run(["rm", "a-llama.txt"])
     # borrar los archivos de la grabación
-    #subprocess.run(["find", ".", "-name", "record*", "-delete"])
+    # subprocess.run(["find", ".", "-name", "record*", "-delete"])
+
 
 def main(): 
 
-    global novoice_counter
-    global is_recording
-    global silence_detected     
+    global novoice_counter, is_recording, \
+           silence_detected, pause_detected, \
+           record_queue
 
     # detector de voz
-    Mic_tuning = Tuning(usb.core.find(idVendor=0x2886, idProduct=0x0018))
+    mic_tunning = Tuning(usb.core.find(idVendor=0x2886, idProduct=0x0018))
 
     record = [] # grabación tras la wake word
 
@@ -167,7 +178,7 @@ def main():
 
     # creación del hilo de transcripción
     transcription_thread = threading.Thread(target=manage_transcription, daemon=True)
-    print("Hilo de transcripción:", threading.current_thread().name)
+    print(f"Hilo {threading.current_thread().name} ejecutado")
     transcription_thread.start()
 
     try: 
@@ -176,9 +187,6 @@ def main():
             # verificar si es la wake word
             pcm = stream.read(porcupine.frame_length, exception_on_overflow=False)
             pcm = np.frombuffer(pcm, dtype=np.int16)
-
-            if is_recording: 
-                record.append(pcm.copy())
             
             # Procesar el audio para detectar la wake word
             keyword_index = porcupine.process(pcm)
@@ -189,11 +197,14 @@ def main():
                 # Vaciamos el contenido de la grabación hasta ahora
                 record.clear()
                 # Iniciamos grabación
-                is_recording = True 
-                
-            if Mic_tuning.is_voice(): # si se detecta voz
+                is_recording = True
+
+            if is_recording:
+                record.append(pcm.copy())
+
+            if mic_tunning.is_voice(): # si se detecta voz
                 novoice_counter = 0  # reiniciamos la captación de silencio
-                pause_detected=False
+                pause_detected = False
             else: # sino
                 if is_recording: 
                     novoice_counter += 1
@@ -215,8 +226,8 @@ def main():
                         # esperar a la finalización del hilo de transcripción
                         transcription_thread.join()
 
-                        # si el archivo prompt-llama está vacío, limpiar la carpeta
-                        if os.path.exists("prompt-llama.txt") and os.path.getsize("prompt-llama.txt") == 0:
+                        # si el archivo a-llama está vacío, limpiar la carpeta
+                        if os.path.exists("a-llama.txt") and os.path.getsize("a-llama.txt") == 0:
                             clear_actual_folder()
 
                         # TODO: gestionarlo de otra forma, ya que no debe romper
@@ -225,8 +236,9 @@ def main():
         # esperar a la finalización del hilo de transcripción
         transcription_thread.join()
 
+
 if __name__ == "__main__":
     main()
-    clear_resources()
+    terminate()
 
     
