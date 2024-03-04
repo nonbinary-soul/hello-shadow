@@ -16,15 +16,12 @@ import wave
 import subprocess
 import os
 
-# simulación de la transcripción de audio en streaming
-import threading
-# import queue
-from collections import deque
-
 # para la detección de voz
 from tuning import Tuning
 import usb.core
 import usb.util
+
+from multiprocessing import Process, Queue, Event
 # ------------------------------------------------------
 # PORCUPINE 
 # ------------------------------------------------------
@@ -83,7 +80,7 @@ else:
 # PAUSAS Y SILENCIOS
 # ------------------------------------------------------
 novoice_counter = 0
-silence_detected = False
+silence_detected = Event()
 pause_detected = False
 SILENCE_DURATION = 4  # duración de silencio requerida para finalizar la grabación
 PAUSE_DURATION = 2  # duración de pausa requerida para transcribir
@@ -92,7 +89,7 @@ PAUSE_DURATION = 2  # duración de pausa requerida para transcribir
 # GESTIÓN DE TRANSCRIPCIÓN
 # ------------------------------------------------------
 is_recording = False
-record_queue = deque()
+record_queue = Queue()
 
 
 # FUNCIÓN para generar archivo .wav
@@ -108,35 +105,32 @@ def generate_wav(file_name, record):
 def call_whisper(audio_file): 
     command = ["whisper", audio_file, "--model", "small", "--language", "Spanish"]
     subprocess.run(command, check=True)
-    print("whisper ejecutado")
 
 
 def transcript(frame): 
     generate_wav(OUTPUT_FILENAME, frame)
-    # print("tamaño del .wav:", os.path.getsize(OUTPUT_FILENAME))
     call_whisper(OUTPUT_FILENAME)
     subprocess.run(["cat", "record.txt"], stdout=open("a-llama.txt", "a"))
-    
-    print("audio transcrito")
 
 
 # FUNCIÓN del hilo de transcripción
-def manage_transcription(): 
-    global silence_detected
-    global record_queue
+def manage_transcription():
+    print("entro")
 
-    while not silence_detected:
-        if record_queue: 
-            frame = record_queue.pop()
+    while not silence_detected.is_set():
+        if not record_queue.empty():
+            print("hay elementos, desencolo")
+            frame = record_queue.get()
             transcript(frame)
-            time.sleep(0)
 
-    # vaciar la cola antes de terminar el hilo    
-    while record_queue: 
-        frame = record_queue.pop()
+    # vaciar la cola antes de terminar el hilo
+    print("ahora vacío la cola")
+    while not record_queue.empty():
+        frame = record_queue.get()
         transcript(frame)
+        print("elemento desencolado")
 
-    print("hilo finalizado")
+    print("proceso finalizado")
    
 # ------------------------------------------------------
 # BORRADOS
@@ -152,35 +146,26 @@ def terminate():
 
 
 # FUNCIÓN para limpiar nuestro directorio actual
-def clear_actual_folder(): 
+def delete_llama_prompt(): 
     # archivo input-llama.txt
     if os.path.exists("a-llama.txt"):
         subprocess.run(["rm", "a-llama.txt"])
-    # borrar los archivos de la grabación
-    # subprocess.run(["find", ".", "-name", "record*", "-delete"])
 
 
 def main(): 
 
-    global novoice_counter, is_recording, \
-           silence_detected, pause_detected, \
-           record_queue
+    global novoice_counter, is_recording, pause_detected
 
     # detector de voz
     mic_tunning = Tuning(usb.core.find(idVendor=0x2886, idProduct=0x0018))
-
     record = []  # grabación tras la wake word
 
     # limpiar el directorio antes de comenzar
-    clear_actual_folder()
+    delete_llama_prompt()
 
-    # creación del hilo de transcripción
-    # transcription_thread = threading.Thread(target=manage_transcription, daemon=True)
-    # print(f"Hilo {threading.current_thread().name} ejecutado")
-    # transcription_thread.start()
-
-    try: 
-        while True:
+    try:
+        silence_detected.clear()
+        while not silence_detected.is_set():
             # verificar si es la wake word
             pcm = stream.read(porcupine.frame_length, exception_on_overflow=False)
             pcm = np.frombuffer(pcm, dtype=np.int16)
@@ -206,37 +191,29 @@ def main():
                 if is_recording: 
                     novoice_counter += 1
                     
-                    # # Verificar si se ha alcanzado la pausa especificada
-                    # if novoice_counter >= PAUSE_DURATION*64 and not pause_detected:
-                    #     print("PAUSA")
-                    #     pause_detected = True
-                    #     # encolar el fragmento de audio para su transcripción
-                    #     record_queue.append(record)
-                    #     record.clear()
+                    # Verificar si se ha alcanzado la pausa especificada
+                    if novoice_counter >= PAUSE_DURATION*64 and not pause_detected:
+                        print("PAUSA")
+                        pause_detected = True
+                        # encolar el fragmento de audio para su transcripción
+                        record_queue.put(record)
+                        record.clear()
 
                     # Verificar si se ha alcanzado la duración de silencio requerida
                     if novoice_counter >= SILENCE_DURATION*64:
                         print("SILENCIO")
-                        silence_detected = True
-                        is_recording = False  # NOTA: determinar si se usará en caso de que el programa no deba romper
-                        transcript(record)
-                        # esperar a la finalización del hilo de transcripción
-                        # transcription_thread.join()
-
-                        # si el archivo a-llama está vacío, limpiar la carpeta
-                        if os.path.exists("a-llama.txt") and os.path.getsize("a-llama.txt") == 0:
-                            clear_actual_folder()
-
-                        # TODO: gestionarlo de otra forma, ya que no debe romper
-                        break
-    except KeyboardInterrupt: 
-        # esperar a la finalización del hilo de transcripción
-        # transcription_thread.join()
+                        silence_detected.set()
+                        is_recording = False
+    except KeyboardInterrupt:
         pass
 
 
 if __name__ == "__main__":
+    transcription_process = Process(target=manage_transcription)
+    transcription_process.start()
     main()
+    print("Esperando al subproceso")
+    transcription_process.join()
     terminate()
 
     
