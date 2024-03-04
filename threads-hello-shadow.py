@@ -85,8 +85,8 @@ else:
 novoice_counter = 0
 silence_detected = False
 pause_detected = False
-SILENCE_DURATION = 4 # duración de silencio requerida para finalizar la grabación
-PAUSE_DURATION = 2 # duración de pausa requerida para transcribir
+SILENCE_DURATION = 4  # duración de silencio requerida para finalizar la grabación
+PAUSE_DURATION = 2  # duración de pausa requerida para transcribir
 
 # ------------------------------------------------------
 # GESTIÓN DE TRANSCRIPCIÓN
@@ -114,9 +114,7 @@ def call_whisper(audio_file):
 def transcript(frame): 
     generate_wav(OUTPUT_FILENAME, frame)
     # print("tamaño del .wav:", os.path.getsize(OUTPUT_FILENAME))
-    
     call_whisper(OUTPUT_FILENAME)
-
     subprocess.run(["cat", "record.txt"], stdout=open("a-llama.txt", "a"))
     
     print("audio transcrito")
@@ -171,19 +169,18 @@ def main():
     # detector de voz
     mic_tunning = Tuning(usb.core.find(idVendor=0x2886, idProduct=0x0018))
 
-    record = [] # grabación tras la wake word
+    record = []  # grabación tras la wake word
 
     # limpiar el directorio antes de comenzar
     clear_actual_folder()
 
     # creación del hilo de transcripción
-    transcription_thread = threading.Thread(target=manage_transcription, daemon=True)
-    print(f"Hilo {threading.current_thread().name} ejecutado")
-    transcription_thread.start()
+    # transcription_thread = threading.Thread(target=manage_transcription, daemon=True)
+    # print(f"Hilo {threading.current_thread().name} ejecutado")
+    # transcription_thread.start()
 
     try: 
         while True:
-
             # verificar si es la wake word
             pcm = stream.read(porcupine.frame_length, exception_on_overflow=False)
             pcm = np.frombuffer(pcm, dtype=np.int16)
@@ -205,26 +202,26 @@ def main():
             if mic_tunning.is_voice(): # si se detecta voz
                 novoice_counter = 0  # reiniciamos la captación de silencio
                 pause_detected = False
-            else: # sino
+            else:  # sino
                 if is_recording: 
                     novoice_counter += 1
                     
-                    # Verificar si se ha alcanzado la pausa especificada
-                    if novoice_counter >= PAUSE_DURATION*64 and not pause_detected:
-                        print("PAUSA")
-                        pause_detected = True
-                        # encolar el fragmento de audio para su transcripción
-                        record_queue.append(record)
-                        record.clear()
+                    # # Verificar si se ha alcanzado la pausa especificada
+                    # if novoice_counter >= PAUSE_DURATION*64 and not pause_detected:
+                    #     print("PAUSA")
+                    #     pause_detected = True
+                    #     # encolar el fragmento de audio para su transcripción
+                    #     record_queue.append(record)
+                    #     record.clear()
 
                     # Verificar si se ha alcanzado la duración de silencio requerida
                     if novoice_counter >= SILENCE_DURATION*64:
                         print("SILENCIO")
                         silence_detected = True
-                        is_recording = False # NOTA: determinar si se usará en caso de que el programa no deba romper
-                        
+                        is_recording = False  # NOTA: determinar si se usará en caso de que el programa no deba romper
+                        transcript(record)
                         # esperar a la finalización del hilo de transcripción
-                        transcription_thread.join()
+                        # transcription_thread.join()
 
                         # si el archivo a-llama está vacío, limpiar la carpeta
                         if os.path.exists("a-llama.txt") and os.path.getsize("a-llama.txt") == 0:
@@ -234,7 +231,8 @@ def main():
                         break
     except KeyboardInterrupt: 
         # esperar a la finalización del hilo de transcripción
-        transcription_thread.join()
+        # transcription_thread.join()
+        pass
 
 
 if __name__ == "__main__":
