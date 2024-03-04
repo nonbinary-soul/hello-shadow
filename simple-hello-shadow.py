@@ -3,7 +3,6 @@
 # ------------------------------------------------------
 # LIBRERÍAS
 # ------------------------------------------------------
-import time
 # picovoice
 import pvporcupine
 import numpy as np
@@ -130,7 +129,7 @@ def clear_actual_folder():
 
 
 def main():
-    record = [] # grabación tras la wake word
+    record = []  # grabación tras la wake word
     global is_recording
     # limpiar el directorio antes de comenzar
     clear_actual_folder()
