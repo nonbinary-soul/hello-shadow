@@ -80,9 +80,7 @@ else:
 # ------------------------------------------------------
 novoice_counter = 0
 silence_detected = Event()
-pause_detected = False
-SILENCE_DURATION = 2  # duración de silencio requerida para finalizar la grabación
-PAUSE_DURATION = 0.5  # duración de pausa requerida para transcribir
+SILENCE_DURATION = 1  # duración de silencio requerida para finalizar la grabación
 
 # ------------------------------------------------------
 # GESTIÓN DE TRANSCRIPCIÓN
@@ -111,20 +109,6 @@ def transcript(frame):
     call_whisper(OUTPUT_FILENAME)
     subprocess.run(["cat", "record.txt"], stdout=open("prompt-llama.txt", "a"))
 
-
-# FUNCIÓN del hilo de transcripción
-def manage_transcription():
-
-    while not silence_detected.is_set():
-        if not record_queue.empty():
-            frame = record_queue.get()
-            transcript(frame)
-
-    # vaciar la cola antes de terminar
-    while not record_queue.empty():
-        frame = record_queue.get()
-        transcript(frame)
-   
 # ------------------------------------------------------
 # BORRADOS
 # ------------------------------------------------------
@@ -147,7 +131,7 @@ def delete_llama_prompt():
 
 def main(): 
 
-    global novoice_counter, is_recording, pause_detected
+    global novoice_counter, is_recording
 
     # detector de voz
     mic_tunning = Tuning(usb.core.find(idVendor=0x2886, idProduct=0x0018))
@@ -179,24 +163,16 @@ def main():
             if is_recording:
                 record.append(pcm.copy())
 
-            if mic_tunning.is_voice(): # si se detecta voz
+            if mic_tunning.is_voice():  # si se detecta voz
                 novoice_counter = 0  # reiniciamos la captación de silencio
-                pause_detected = False
             else:  # sino
                 if is_recording: 
                     novoice_counter += 1
-                    
-                    # Verificar si se ha alcanzado la pausa especificada
-                    if novoice_counter >= PAUSE_DURATION*64 and not pause_detected:
-                        print("PAUSA")
-                        pause_detected = True
-                        # encolar el fragmento de audio para su transcripción
-                        record_queue.put(record.copy())
-                        record.clear()
 
                     # Verificar si se ha alcanzado la duración de silencio requerida
                     if novoice_counter >= SILENCE_DURATION*64:
                         print("SILENCIO")
+                        transcript(record)
                         silence_detected.set()
                         is_recording = False
     except KeyboardInterrupt:
@@ -204,10 +180,7 @@ def main():
 
 
 if __name__ == "__main__":
-    transcription_process = Process(target=manage_transcription)
-    transcription_process.start()
     main()
-    transcription_process.join()
     terminate()
 
     
