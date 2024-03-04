@@ -30,7 +30,7 @@ porcupine = pvporcupine.create(access_key=access_key, keyword_paths=[ppn_path])
 RESPEAKER_RATE = 16000
 RESPEAKER_CHANNELS = 1  # Cambia según tus ajustes
 RESPEAKER_WIDTH = 2
-FORMAT = pyaudio.paInt16 # calidad de audio. probar float32 o float64
+FORMAT = pyaudio.paInt16  # calidad de audio. probar float32 o float64
 OUTPUT_FILENAME = "record.wav"
 
 # instancia
@@ -74,8 +74,7 @@ else:
 # ------------------------------------------------------
 novoice_counter = 0
 silence_detected = False
-SILENCE_DURATION = 2 # duración de silencio requerida para finalizar la grabación
-PAUSE_DURATION = 2 # duración de pausa requerida para transcribir
+SILENCE_DURATION = 2  # duración de silencio requerida para finalizar la grabación
 
 # ------------------------------------------------------
 # GESTIÓN DE TRANSCRIPCIÓN
@@ -96,15 +95,13 @@ def generate_wav(file_name, record):
 def call_whisper(audio_file):
     command = ["whisper", audio_file, "--model", "small"]
     subprocess.run(command, check=True)
-    print("whisper ejecutado")
 
 
 def transcript(frame):
     generate_wav(OUTPUT_FILENAME, frame)
     call_whisper(OUTPUT_FILENAME)
     subprocess.run(["cat", "record.txt"], stdout=open("prompt-llama.txt", "a"))
-
-    print("audio transcrito")
+    
 
 # ------------------------------------------------------
 # BORRADOS
@@ -120,7 +117,7 @@ def terminate():
 
 
 # FUNCIÓN para limpiar nuestro directorio actual
-def clear_actual_folder():
+def delete_llama_prompt():
     # archivo input-llama.txt
     if os.path.exists("prompt-llama.txt"):
         subprocess.run(["rm", "prompt-llama.txt"])
@@ -132,7 +129,7 @@ def main():
     record = []  # grabación tras la wake word
     global is_recording
     # limpiar el directorio antes de comenzar
-    clear_actual_folder()
+    delete_llama_prompt()
 
     try:
         while True:
@@ -158,7 +155,7 @@ def main():
         transcript(record)
         # si el archivo prompt-llama está vacío, limpiar la carpeta
         if os.path.exists("prompt-llama.txt") and os.path.getsize("prompt-llama.txt") == 0:
-            clear_actual_folder()
+            delete_llama_prompt()
 
 
 if __name__ == "__main__":
