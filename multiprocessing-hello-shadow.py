@@ -3,7 +3,6 @@
 # ------------------------------------------------------
 # LIBRERÍAS
 # ------------------------------------------------------
-import time
 # picovoice
 import pvporcupine
 import numpy as np
@@ -37,7 +36,7 @@ porcupine = pvporcupine.create(access_key=access_key, keyword_paths=[ppn_path])
 RESPEAKER_RATE = 16000
 RESPEAKER_CHANNELS = 1  # Cambia según tus ajustes
 RESPEAKER_WIDTH = 2
-FORMAT = pyaudio.paInt16 # calidad de audio. probar float32 o float64
+FORMAT = pyaudio.paInt16  # calidad de audio. probar float32 o float64
 OUTPUT_FILENAME = "record.wav"
 
 # instancia
@@ -82,8 +81,8 @@ else:
 novoice_counter = 0
 silence_detected = Event()
 pause_detected = False
-SILENCE_DURATION = 4  # duración de silencio requerida para finalizar la grabación
-PAUSE_DURATION = 2  # duración de pausa requerida para transcribir
+SILENCE_DURATION = 2  # duración de silencio requerida para finalizar la grabación
+PAUSE_DURATION = 0.5  # duración de pausa requerida para transcribir
 
 # ------------------------------------------------------
 # GESTIÓN DE TRANSCRIPCIÓN
@@ -110,27 +109,21 @@ def call_whisper(audio_file):
 def transcript(frame): 
     generate_wav(OUTPUT_FILENAME, frame)
     call_whisper(OUTPUT_FILENAME)
-    subprocess.run(["cat", "record.txt"], stdout=open("a-llama.txt", "a"))
+    subprocess.run(["cat", "record.txt"], stdout=open("prompt-llama.txt", "a"))
 
 
 # FUNCIÓN del hilo de transcripción
 def manage_transcription():
-    print("entro")
 
     while not silence_detected.is_set():
         if not record_queue.empty():
-            print("hay elementos, desencolo")
             frame = record_queue.get()
             transcript(frame)
 
-    # vaciar la cola antes de terminar el hilo
-    print("ahora vacío la cola")
+    # vaciar la cola antes de terminar
     while not record_queue.empty():
         frame = record_queue.get()
         transcript(frame)
-        print("elemento desencolado")
-
-    print("proceso finalizado")
    
 # ------------------------------------------------------
 # BORRADOS
@@ -148,8 +141,8 @@ def terminate():
 # FUNCIÓN para limpiar nuestro directorio actual
 def delete_llama_prompt(): 
     # archivo input-llama.txt
-    if os.path.exists("a-llama.txt"):
-        subprocess.run(["rm", "a-llama.txt"])
+    if os.path.exists("prompt-llama.txt"):
+        subprocess.run(["rm", "prompt-llama.txt"])
 
 
 def main(): 
@@ -175,7 +168,9 @@ def main():
 
             # Si se detecta la palabra clave, iniciar la grabación 
             if keyword_index >= 0:
-                print(f"Detected 'hello shadow'")
+                print(f"Escuchando...")
+                # limpiar el directorio antes de comenzar
+                delete_llama_prompt()
                 # Vaciamos el contenido de la grabación hasta ahora
                 record.clear()
                 # Iniciamos grabación
@@ -196,7 +191,7 @@ def main():
                         print("PAUSA")
                         pause_detected = True
                         # encolar el fragmento de audio para su transcripción
-                        record_queue.put(record)
+                        record_queue.put(record.copy())
                         record.clear()
 
                     # Verificar si se ha alcanzado la duración de silencio requerida
@@ -212,7 +207,6 @@ if __name__ == "__main__":
     transcription_process = Process(target=manage_transcription)
     transcription_process.start()
     main()
-    print("Esperando al subproceso")
     transcription_process.join()
     terminate()
 
